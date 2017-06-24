@@ -17,13 +17,13 @@ class ClientCommunicator(MyThread):
         # The connector to the important variables of the server.
         self.general = general
 
-        # The socket which this thread is using to communicate with the client.
+        # The socket of the thread as a server. With this socket the thread accepts the client.
         self.socket = socket
 
-        # The socket of the client that this thread is communicating with.
+        # The socket of the client that the thread has accepted. with this socket the thread communicates with the client.
         self.client_socket = None
 
-        # The client of this communicator.
+        # The client instance which this thread is communicating with.
         self.client = None
 
         # The instance that is responsible for receiving the data from the client.
@@ -42,16 +42,17 @@ class ClientCommunicator(MyThread):
 
         # Accept the client.
         (new_socket, address) = self.socket.accept()
-
+		
+		# save his socket so this thread will be able communicating with him.
         self.client_socket = new_socket
 
-        # Create the instance that will receive the data from the client.
+        # Create the instance which will receive the data from the client.
         self.receive = Receive(self, self.client_socket)
 
         # Start it.
         self.receive.start()
 
-        # Create the instance that will send data to the client.
+        # Create the instance which will send data to the client.
         self.send = Send(self, self.client_socket)
 
         # Start it.
@@ -67,7 +68,7 @@ class Receive(MyThread):
 
         MyThread.__init__(self, -1, "ClientComReceive")
 
-        # The communicator.
+        # The main communicator of this thread.
         self.communicator = communicator
 
         # The socket of the client.
@@ -77,107 +78,47 @@ class Receive(MyThread):
         """
             The function is responsible for receiving data from the client.
         """
-
+		
+		# Keep this thread alive as long the server is on air.
         while not self.communicator.general.shut_down:
-
+			
+			# In case there will be a problem communicating with the client.
             try:
 
                 # Receive a message from the client only if there is something to receive. Every 1 second check if the
-                # server has to shut down.
+                # server has to shut down and this thread should get finished.
                 in_message, out_message, err_message = select.select([self.client_socket], [self.client_socket], [], 1)
-
+				
+				# Check if there is a message to receive.
                 if in_message:
 
-                    # Wait for data from the client.
+                    # Receive the message.
                     message = self.client_socket.recv(1024)
-
+					
+					# In case different messages stick together.
                     messages = message.split("New Message::")
-
+					
+					# Iterate over all the messages and handle each.
                     for message in messages:
-
+						
+						# handle the current message.
                         self.follow_protocol(message)
-
+			
+			# An error receiving the message form the client has occurred. Disconnect the client from the server.
             except:
 
                 self.communicator.client_disconnected = True
+				
+				# Stop the thread.
                 return
 
     def follow_protocol(self, message):
         """
             The function checks what the client wants.
         """
-
+		
+		# split the message to its headers.
         message = message.split("::")
-
-        # Check if the client is trying to send the server new information about a request.
-        if len(message) > 0 and message[0] == "Request":
-
-            # The client wants to create new request.
-            if len(message) > 2 and message[1] == "New Request":
-
-                if int(self.communicator.general.connected_panel.requests_counter.count) < \
-                        int(self.communicator.general.connected_panel.requests_counter.max):
-
-                    # Wait until the server will supply a new id for the next new request.
-                    while self.communicator.general.next_request_id == -1:
-                        pass
-
-                    self.communicator.client.current_request = ServerRequest(self.communicator.general.next_request_id,
-                                                                             self.communicator.client, message[2],
-                                                                             "Requests/")
-
-                else:
-
-                    self.communicator.send.messages_to_send.append("Request::Status::Server Full")
-
-            elif len(message) > 1 and message[1] == "Received":
-
-                if len(message) > 2 and message[2] == "File To Run Has Received":
-
-                    self.communicator.client.current_request.received_file_to_run = True
-
-                elif len(message) > 2 and message[2] == "Additional File Has Received":
-
-                    self.communicator.client.current_request.server_received_current_additional_file = True
-
-            # The client is trying to upload another packet with an information about the current request.
-            elif len(message) > 1 and message[1] == "Uploading":
-
-                if len(message) > 3 and message[2] == "Request Dict":
-
-                    ServerRequest.save_current_request(json.loads(message[3]),
-                                                       self.communicator.client.current_request.dir +
-                                                       "current_request.txt")
-
-                # The client is sending more data about the file to run. append it to the already received data.
-                elif len(message) > 3 and message[2] == "Run File":
-
-                    message[3].replace("%~", "::")
-
-                    self.communicator.client.current_request.update_run_file(message[3])
-
-                    if len(message) > 4 and message[4] == "~~Finished Sending The File~~":
-
-                        self.communicator.send.messages_to_send.append("Request::Received::File To Run Has Received")
-
-                elif len(message) > 3 and message[2] == "Additional File":
-
-                    message[3].replace("%~", "::")
-
-                    self.communicator.client.current_request.update_additional_file(message[3], message[4])
-
-                    if len(message) > 5 and message[5] == "~~Finished Sending The File~~":
-
-                        self.communicator.send.messages_to_send.append("Request::Received::Additional File Has " +
-                                                                       "Received")
-
-                elif len(message) > 3 and message[2] == "Executors Amount" and message[3].isdigit():
-
-                    self.communicator.client.current_request.executors_amount = int(message[3])
-
-            elif len(message) > 1 and message[1] == "Finished Sending":
-
-                self.communicator.client.current_request.full_request_has_arrived = True
 
 
 class Send(MyThread):
@@ -188,9 +129,11 @@ class Send(MyThread):
     def __init__(self, communicator, client_socket):
 
         MyThread.__init__(self, -1, "ClientComSend")
-
+		
+		# The socket of the client.
         self.client_socket = client_socket
 
+		# The main communicator of this thread.
         self.communicator = communicator
 
         # Contains the messages to send the client.
@@ -201,8 +144,10 @@ class Send(MyThread):
             The function responsible for sending data to the client.
         """
 
+		# Keep this thread alive as long the server is on air.
         while not self.communicator.general.shut_down:
-
+			
+			# Check if there are any messages to send.
             if self.messages_to_send:
 
                 # Iterate over all the messages that are supposed to be sent to the client.
@@ -212,9 +157,11 @@ class Send(MyThread):
 
                         # Send the message to the client.
                         self.client_socket.send("New Message::" + message)
-
+					
+					# An error communicating with the client occurred. Disconnect the client.
                     except:
 
                         self.communicator.client_disconnected = True
-
+				
+				# Empty the messages to send list, all the messages in it were handled.
                 self.messages_to_send = []
