@@ -2,6 +2,8 @@ import json
 from MyThread import MyThread
 from Request import ServerRequest
 import select
+from Registration import Registration
+from Login import Login
 
 
 class ClientCommunicator(MyThread):
@@ -119,7 +121,20 @@ class Receive(MyThread):
 		
 		# split the message to its headers.
         message = message.split("::")
+		
+		if len(message) > 2 and message[0] == "register me":
+		
+			details = message[1].split(',')
 
+			registration_process = Registration(self.general, self.communicator, details)
+			
+			registration_process.start()
+			
+		elif len(message) >3 and message[0] == "login me":
+			
+			login_process = Login(self.general, self.communicator, details)
+
+			login_process.start()
 
 class Send(MyThread):
     """
